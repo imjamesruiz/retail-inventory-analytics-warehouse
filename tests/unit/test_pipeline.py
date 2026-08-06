@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from inventory_pipeline.config import DataSourceMode, Settings
@@ -39,3 +41,18 @@ def test_backfill_days_gt_one_rejected_in_live_mode(tmp_path):
 
     with pytest.raises(ValueError, match="fixture mode"):
         run_ingestion(settings, backfill_days=3, storage=storage)
+
+
+def test_most_recent_backfill_day_is_never_in_the_future(tmp_path):
+    """Regression test: the anchor used to snap to "today at noon UTC",
+    which was in the future whenever the run happened before noon. Every
+    observed_at, including the most recent simulated day, must be <= now."""
+    settings = Settings(_env_file=None, data_source_mode=DataSourceMode.FIXTURE)
+    storage = LocalRawStorage(base_dir=tmp_path)
+
+    before = datetime.now(UTC)
+    summary = run_ingestion(settings, backfill_days=5, storage=storage)
+    after = datetime.now(UTC)
+
+    latest_observed_at = max(o.manifest.observed_at for o in summary.outcomes)
+    assert before <= latest_observed_at <= after

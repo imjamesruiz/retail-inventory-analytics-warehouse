@@ -7,6 +7,14 @@ table on its deterministic primary key. MERGE with WHEN NOT MATCHED THEN
 INSERT (no UPDATE branch) means loading the same run twice, or loading two
 runs that happen to overlap, never creates duplicates -- exactly the
 idempotency guarantee raw storage's immutability depends on downstream.
+
+Timestamp columns are staged as plain ISO-8601 strings and parsed
+server-side with TRY_TO_TIMESTAMP_NTZ during the MERGE, rather than staged
+as pandas datetime64 columns. write_pandas' Arrow/Parquet path has a
+unit-scaling bug against TIMESTAMP_NTZ targets on some environments (seen
+here with snowflake-connector-python 4.7.1 on Python 3.14) that silently
+corrupts the stored value into a nonsense date instead of raising -- string
+staging sidesteps that code path entirely.
 """
 
 from __future__ import annotations
@@ -24,46 +32,57 @@ from inventory_pipeline.storage.base import RawStorage
 
 logger = get_logger()
 
-EVENTS_COLUMNS = [
-    "EVENT_ID",
-    "SOURCE",
-    "RETAILER_PRODUCT_ID",
-    "PRODUCT_NAME",
-    "PRODUCT_URL",
-    "SKU",
-    "UPC",
-    "CATEGORY",
-    "PRICE",
-    "CURRENCY",
-    "INVENTORY_STATUS",
-    "QUANTITY_AVAILABLE",
-    "STORE_ID",
-    "LOCATION_TYPE",
-    "OBSERVED_AT",
-    "EXTRACTED_AT",
-    "INGESTION_RUN_ID",
-    "RAW_FILE_PATH",
-    "SOURCE_RESPONSE_HASH",
-    "SCHEMA_VERSION",
-    "RAW_PAYLOAD",
+_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
+
+# (column, staging column type). Timestamp columns are STRING here and cast
+# with TRY_TO_TIMESTAMP_NTZ on insert; RAW_PAYLOAD/ERROR_SUMMARY are STRING
+# here and cast with PARSE_JSON on insert. Everything else matches its type
+# in the target RAW table.
+EVENTS_STAGE_COLUMNS: list[tuple[str, str]] = [
+    ("EVENT_ID", "STRING"),
+    ("SOURCE", "STRING"),
+    ("RETAILER_PRODUCT_ID", "STRING"),
+    ("PRODUCT_NAME", "STRING"),
+    ("PRODUCT_URL", "STRING"),
+    ("SKU", "STRING"),
+    ("UPC", "STRING"),
+    ("CATEGORY", "STRING"),
+    ("PRICE", "NUMBER(12, 2)"),
+    ("CURRENCY", "STRING"),
+    ("INVENTORY_STATUS", "STRING"),
+    ("QUANTITY_AVAILABLE", "NUMBER"),
+    ("STORE_ID", "STRING"),
+    ("LOCATION_TYPE", "STRING"),
+    ("OBSERVED_AT", "STRING"),
+    ("EXTRACTED_AT", "STRING"),
+    ("INGESTION_RUN_ID", "STRING"),
+    ("RAW_FILE_PATH", "STRING"),
+    ("SOURCE_RESPONSE_HASH", "STRING"),
+    ("SCHEMA_VERSION", "STRING"),
+    ("RAW_PAYLOAD", "STRING"),
 ]
 
-RUNS_COLUMNS = [
-    "RUN_ID",
-    "SOURCE",
-    "OBSERVED_AT",
-    "STARTED_AT",
-    "COMPLETED_AT",
-    "STATUS",
-    "PAYLOADS_RECEIVED",
-    "EVENTS_NORMALIZED",
-    "EVENTS_REJECTED",
-    "RAW_PAYLOAD_PATH",
-    "NORMALIZED_OUTPUT_PATH",
-    "MANIFEST_PATH",
-    "ERROR_SUMMARY",
-    "PIPELINE_VERSION",
+RUNS_STAGE_COLUMNS: list[tuple[str, str]] = [
+    ("RUN_ID", "STRING"),
+    ("SOURCE", "STRING"),
+    ("OBSERVED_AT", "STRING"),
+    ("STARTED_AT", "STRING"),
+    ("COMPLETED_AT", "STRING"),
+    ("STATUS", "STRING"),
+    ("PAYLOADS_RECEIVED", "NUMBER"),
+    ("EVENTS_NORMALIZED", "NUMBER"),
+    ("EVENTS_REJECTED", "NUMBER"),
+    ("RAW_PAYLOAD_PATH", "STRING"),
+    ("NORMALIZED_OUTPUT_PATH", "STRING"),
+    ("MANIFEST_PATH", "STRING"),
+    ("ERROR_SUMMARY", "STRING"),
+    ("PIPELINE_VERSION", "STRING"),
 ]
+
+EVENTS_COLUMNS = [c for c, _ in EVENTS_STAGE_COLUMNS]
+RUNS_COLUMNS = [c for c, _ in RUNS_STAGE_COLUMNS]
+_TIMESTAMP_COLUMNS = {"OBSERVED_AT", "EXTRACTED_AT", "STARTED_AT", "COMPLETED_AT"}
+_JSON_COLUMNS = {"RAW_PAYLOAD", "ERROR_SUMMARY"}
 
 
 @dataclass
@@ -148,7 +167,7 @@ def _collect_events(storage: RawStorage) -> tuple[pd.DataFrame, int]:
     df.columns = [c.upper() for c in df.columns]
     df = df.reindex(columns=EVENTS_COLUMNS)
     for col in ("OBSERVED_AT", "EXTRACTED_AT"):
-        df[col] = pd.to_datetime(df[col], utc=True).dt.tz_localize(None)
+        df[col] = _to_timestamp_string(df[col])
     return df, len(keys)
 
 
@@ -168,26 +187,46 @@ def _collect_runs(storage: RawStorage) -> tuple[pd.DataFrame, int]:
     df.columns = [c.upper() for c in df.columns]
     df = df.reindex(columns=RUNS_COLUMNS)
     for col in ("OBSERVED_AT", "STARTED_AT", "COMPLETED_AT"):
-        df[col] = pd.to_datetime(df[col], utc=True).dt.tz_localize(None)
+        df[col] = _to_timestamp_string(df[col])
     return df, len(keys)
+
+
+def _to_timestamp_string(series: pd.Series) -> pd.Series:
+    """UTC wall-clock ISO string, e.g. '2026-08-06 12:00:00.000000'.
+
+    Kept as plain strings all the way through write_pandas -- see module
+    docstring for why datetime64 columns aren't safe here.
+    """
+    return pd.to_datetime(series, utc=True).dt.tz_localize(None).dt.strftime(_TIMESTAMP_FORMAT)
+
+
+def _create_stage_table(
+    conn: snowflake.connector.SnowflakeConnection, table_name: str, columns: list[tuple[str, str]]
+) -> None:
+    column_defs = ", ".join(f"{name} {sql_type}" for name, sql_type in columns)
+    with conn.cursor() as cur:
+        cur.execute(f"CREATE OR REPLACE TEMPORARY TABLE {table_name} ({column_defs})")
+
+
+def _select_expr(column: str) -> str:
+    if column in _JSON_COLUMNS:
+        return f"PARSE_JSON(src.{column})"
+    if column in _TIMESTAMP_COLUMNS:
+        return f"TRY_TO_TIMESTAMP_NTZ(src.{column})"
+    return f"src.{column}"
 
 
 def _merge_events(conn: snowflake.connector.SnowflakeConnection, df: pd.DataFrame) -> int:
     stage_table = "INVENTORY_EVENTS_STAGE"
-    with conn.cursor() as cur:
-        cur.execute(f"CREATE TEMPORARY TABLE {stage_table} LIKE RAW.INVENTORY_EVENTS")
-
+    _create_stage_table(conn, stage_table, EVENTS_STAGE_COLUMNS)
     write_pandas(conn, df, table_name=stage_table, quote_identifiers=False)
 
-    insert_cols = [c for c in EVENTS_COLUMNS]
-    select_exprs = [
-        "PARSE_JSON(src.RAW_PAYLOAD)" if c == "RAW_PAYLOAD" else f"src.{c}" for c in insert_cols
-    ]
+    select_exprs = [_select_expr(c) for c in EVENTS_COLUMNS]
     merge_sql = f"""
         MERGE INTO RAW.INVENTORY_EVENTS AS tgt
         USING {stage_table} AS src
         ON tgt.EVENT_ID = src.EVENT_ID
-        WHEN NOT MATCHED THEN INSERT ({", ".join(insert_cols)})
+        WHEN NOT MATCHED THEN INSERT ({", ".join(EVENTS_COLUMNS)})
         VALUES ({", ".join(select_exprs)})
     """
     with conn.cursor() as cur:
@@ -197,20 +236,15 @@ def _merge_events(conn: snowflake.connector.SnowflakeConnection, df: pd.DataFram
 
 def _merge_runs(conn: snowflake.connector.SnowflakeConnection, df: pd.DataFrame) -> int:
     stage_table = "INGESTION_RUNS_STAGE"
-    with conn.cursor() as cur:
-        cur.execute(f"CREATE TEMPORARY TABLE {stage_table} LIKE RAW.INGESTION_RUNS")
-
+    _create_stage_table(conn, stage_table, RUNS_STAGE_COLUMNS)
     write_pandas(conn, df, table_name=stage_table, quote_identifiers=False)
 
-    insert_cols = [c for c in RUNS_COLUMNS]
-    select_exprs = [
-        "PARSE_JSON(src.ERROR_SUMMARY)" if c == "ERROR_SUMMARY" else f"src.{c}" for c in insert_cols
-    ]
+    select_exprs = [_select_expr(c) for c in RUNS_COLUMNS]
     merge_sql = f"""
         MERGE INTO RAW.INGESTION_RUNS AS tgt
         USING {stage_table} AS src
         ON tgt.RUN_ID = src.RUN_ID
-        WHEN NOT MATCHED THEN INSERT ({", ".join(insert_cols)})
+        WHEN NOT MATCHED THEN INSERT ({", ".join(RUNS_COLUMNS)})
         VALUES ({", ".join(select_exprs)})
     """
     with conn.cursor() as cur:

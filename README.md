@@ -337,8 +337,24 @@ in the run manifest and visible in the dashboard's pipeline-health tab.
 
 ## Screenshots
 
-_Not yet captured._ To add: run `make pipeline` against a real Snowflake
-account, `make dashboard`, and screenshot each tab (Retailer Health, Product
-Availability, Price History, Inventory State Changes, Daily Ingestion Volume)
-into `docs/screenshots/` and reference them here.
+Captured from a real run against Snowflake: 720 fixture observations across
+4 retailers, loaded via `make pipeline` and queried live by the dashboard.
+
+**Retailer Health** -- pipeline run success rate, freshness, and error counts per retailer.
+![Retailer Health](docs/screenshots/retailer_health.png)
+
+**Product Availability** -- lowest-availability products in the selected date range.
+![Product Availability](docs/screenshots/product_availability.png)
+
+Per-product daily availability timeline, showing the restock/stock-out cycle:
+![Product Availability Timeline](docs/screenshots/product_availability_timeline.png)
+
+**Price History** -- price over time for a single product, with change points marked.
+![Price History](docs/screenshots/price_history.png)
+
+**Inventory State Changes** -- recent restocks and stock-outs across all tracked products.
+![Inventory State Changes](docs/screenshots/state_changes.png)
+
+**Daily Ingestion Volume** -- observations collected per day, by retailer.
+![Daily Ingestion Volume](docs/screenshots/daily_volume.png)
 

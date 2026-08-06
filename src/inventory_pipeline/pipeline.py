@@ -86,7 +86,11 @@ def run_ingestion(
     sources = sources or all_sources()
     summary = IngestionSummary()
 
-    anchor = utcnow().replace(hour=12, minute=0, second=0, microsecond=0)
+    # The most recent simulated day (day_offset=0) must never land in the
+    # future -- anchoring to "today at noon UTC" did that whenever the real
+    # run happened before noon. Anchor to the actual current moment instead;
+    # every earlier day is just that moment minus N whole days.
+    anchor = utcnow()
 
     for day_offset in range(backfill_days - 1, -1, -1):
         observed_at = anchor - timedelta(days=day_offset)

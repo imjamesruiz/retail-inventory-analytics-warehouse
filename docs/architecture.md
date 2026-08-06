@@ -111,3 +111,35 @@ Set these in the repo's Settings -> Secrets and variables -> Actions:
 Without these, `pr-validation.yml`'s `dbt-build` job and `scheduled-pipeline.yml`
 are both skipped (their `if:` conditions check for `SNOWFLAKE_ACCOUNT`) --
 lint, unit tests, and `dbt parse` still run on every PR regardless.
+
+## Two real bugs found running this against a live Snowflake account
+
+`dbt parse` and unit tests catch a lot, but not everything -- both of these
+only surfaced once real data hit a real warehouse.
+
+**1. `write_pandas` corrupted timestamp columns.** The Snowflake loader
+originally staged `OBSERVED_AT`/`EXTRACTED_AT` as pandas `datetime64`
+columns and let `write_pandas`'s Arrow/Parquet path write them straight into
+`TIMESTAMP_NTZ` columns. On this environment (snowflake-connector-python
+4.7.1, Python 3.14), that silently corrupted every row -- `TO_VARCHAR`
+showed years like `595059489`, not an error, just wrong data. Downcasting to
+microsecond resolution didn't fix it (same corruption, different
+magnitude), which pointed to a real unit-scaling bug in that code path
+rather than a precision issue. The fix: stage timestamps as plain ISO-8601
+strings and parse them server-side with `TRY_TO_TIMESTAMP_NTZ` during the
+`MERGE`, which avoids Arrow's binary timestamp encoding entirely. See
+`loaders/snowflake.py`'s module docstring and `_to_timestamp_string`.
+
+**2. `TIMESTAMP_NTZ` vs `CURRENT_TIMESTAMP()` (`TIMESTAMP_LTZ`) comparison.**
+The `not_far_in_future` test compared an NTZ column directly against
+`CURRENT_TIMESTAMP()`. Snowflake resolves that comparison by reinterpreting
+the NTZ value in the *session's* `TIMEZONE` parameter (`America/Los_Angeles`
+on a fresh trial account) rather than treating it as UTC -- so a genuinely
+recent UTC observation looked ~7 hours into the future and failed the test.
+Fix: force both sides to UTC explicitly with
+`CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::TIMESTAMP_NTZ` rather than
+relying on the session default. See `macros/test_not_far_in_future.sql`.
+
+Both are documented here rather than just fixed silently because they're the
+kind of bug that only shows up against a real warehouse -- worth knowing if
+you extend this project with more `TIMESTAMP_NTZ` columns or comparisons.

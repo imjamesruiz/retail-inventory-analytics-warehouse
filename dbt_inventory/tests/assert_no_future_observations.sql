@@ -5,6 +5,10 @@
 -- introduced anywhere between staging and the marts (a bad join, a wrong
 -- date cast) that a single-layer test wouldn't.
 
+-- See macros/test_not_far_in_future.sql for why "now" must be pinned to UTC
+-- explicitly rather than compared against session-timezone CURRENT_TIMESTAMP().
 select event_id, observed_at
 from {{ ref('fact_inventory_observation') }}
-where observed_at > dateadd('hour', 2, current_timestamp())
+where observed_at > dateadd(
+    'hour', 2, convert_timezone('UTC', current_timestamp())::timestamp_ntz
+)
