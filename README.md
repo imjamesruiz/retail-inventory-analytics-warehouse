@@ -342,22 +342,3 @@ account, `make dashboard`, and screenshot each tab (Retailer Health, Product
 Availability, Price History, Inventory State Changes, Daily Ingestion Volume)
 into `docs/screenshots/` and reference them here.
 
-## Résumé bullets
-
-See [docs/project_metrics.md](docs/project_metrics.md) for how to generate real,
-measured numbers (`make metrics`) -- do not use placeholder values in a résumé.
-Draft bullets, with `[MEASURE]` marking anything that must come from that report:
-
-- Built an end-to-end ELT pipeline in Python and dbt that ingests retail
-  inventory/pricing observations from `[MEASURE: N]` sources, preserves raw
-  payloads immutably, and loads them into Snowflake with idempotent MERGE-based
-  upserts.
-- Designed a dimensional model in dbt (`[MEASURE: N]` models, `[MEASURE: N]`
-  tests across staging/intermediate/mart layers) with an incremental
-  fact-table model handling `[MEASURE: N]` historical observations.
-- Implemented automated data-quality testing (generic + custom singular dbt
-  tests, Pydantic validation at ingestion) achieving a `[MEASURE: N]`% pipeline
-  run success rate across `[MEASURE: N]` ingestion runs.
-- Automated CI/CD with GitHub Actions (lint, unit tests, dbt build) and built a
-  Streamlit dashboard surfacing inventory availability, pricing history, and
-  pipeline observability from tested Snowflake mart tables.
