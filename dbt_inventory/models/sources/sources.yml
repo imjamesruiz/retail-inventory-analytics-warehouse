@@ -1,0 +1,64 @@
+version: 2
+
+sources:
+  - name: raw
+    database: "{{ env_var('SNOWFLAKE_DATABASE', 'RETAIL_INVENTORY') }}"
+    schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'RAW') }}"
+    description: >
+      Immutable landing tables loaded directly by the Python pipeline
+      (src/inventory_pipeline/loaders/snowflake.py). Never written to by dbt.
+    tables:
+      - name: inventory_events
+        identifier: INVENTORY_EVENTS
+        description: >
+          One row per normalized inventory/pricing observation. RAW_PAYLOAD
+          preserves the complete original source response; every other
+          column is the already-normalized value produced by the Python
+          extraction layer. event_id is a deterministic hash of (source,
+          retailer_product_id, observed_at), so loads are idempotent.
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 72, period: hour}
+        columns:
+          - name: event_id
+            description: Deterministic primary key -- uuid5(source, retailer_product_id, observed_at).
+            tests:
+              - not_null
+              - unique
+          - name: source
+            description: Retailer code (TARGET, WALMART, POKEMON_CENTER, GAMESTOP).
+            tests:
+              - not_null
+          - name: retailer_product_id
+            description: The retailer's own identifier for the product (TCIN, item ID, handle, or SKU).
+            tests:
+              - not_null
+          - name: observed_at
+            description: When this observation was taken (UTC), simulated or real depending on run mode.
+            tests:
+              - not_null
+          - name: ingestion_run_id
+            description: Foreign key to raw.ingestion_runs.run_id.
+            tests:
+              - not_null
+
+      - name: ingestion_runs
+        identifier: INGESTION_RUNS
+        description: One row per extraction run manifest -- powers pipeline observability.
+        config:
+          loaded_at_field: loaded_at
+        columns:
+          - name: run_id
+            description: Unique identifier for one extraction run (one source x one poll).
+            tests:
+              - not_null
+              - unique
+          - name: source
+            tests:
+              - not_null
+          - name: status
+            description: SUCCESS, PARTIAL_FAILURE, or FAILED.
+            tests:
+              - not_null

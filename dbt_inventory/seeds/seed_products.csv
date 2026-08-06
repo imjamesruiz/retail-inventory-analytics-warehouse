@@ -1,0 +1,9 @@
+product_id,retailer,retailer_product_id,product_name,product_url,category,store_id
+target-89345261,TARGET,89345261,Pokemon TCG Scarlet & Violet Booster Bundle,https://www.target.com/p/pokemon-tcg-booster-bundle/-/A-89345261,trading-cards,3991
+target-92873140,TARGET,92873140,Nintendo Switch OLED Console,https://www.target.com/p/nintendo-switch-oled/-/A-92873140,video-games,3991
+walmart-51219873,WALMART,51219873,Pokemon TCG Elite Trainer Box,https://www.walmart.com/ip/pokemon-tcg-elite-trainer-box/51219873,trading-cards,
+walmart-40881122,WALMART,40881122,PlayStation 5 Console,https://www.walmart.com/ip/playstation-5-console/40881122,video-games,
+pokemon-center-scarlet-violet-etb,POKEMON_CENTER,scarlet-violet-elite-trainer-box,Scarlet & Violet Elite Trainer Box,https://www.pokemoncenter.com/products/scarlet-violet-elite-trainer-box,trading-cards,
+pokemon-center-pikachu-plush,POKEMON_CENTER,pikachu-plush-8-inch,Pikachu Plush - 8 In.,https://www.pokemoncenter.com/products/pikachu-plush-8-inch,collectibles,
+gamestop-228517,GAMESTOP,228517,Pokemon Scarlet - Nintendo Switch,https://www.gamestop.com/video-games/switch/products/pokemon-scarlet/228517.html,video-games,
+gamestop-331092,GAMESTOP,331092,Pokemon TCG Booster Box - Twilight Masquerade,https://www.gamestop.com/collectibles/trading-cards/products/pokemon-tcg-booster-box/331092.html,trading-cards,

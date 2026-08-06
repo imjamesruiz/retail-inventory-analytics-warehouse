@@ -1,0 +1,5 @@
+retailer_code,retailer_name,website,integration_mode
+TARGET,Target,https://www.target.com,fixture_only
+WALMART,Walmart,https://www.walmart.com,live
+POKEMON_CENTER,Pokemon Center,https://www.pokemoncenter.com,live
+GAMESTOP,GameStop,https://www.gamestop.com,fixture_only

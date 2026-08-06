@@ -1,0 +1,40 @@
+-- Dedicated role + (optional) service user for the pipeline and dbt, scoped
+-- to only what this project needs. Run after setup.sql, as ACCOUNTADMIN or
+-- SECURITYADMIN.
+
+CREATE ROLE IF NOT EXISTS RETAIL_INVENTORY_ROLE
+  COMMENT = 'Role used by the ingestion pipeline, dbt, and the dashboard for this project';
+
+GRANT USAGE ON WAREHOUSE RETAIL_INVENTORY_WH TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT OPERATE ON WAREHOUSE RETAIL_INVENTORY_WH TO ROLE RETAIL_INVENTORY_ROLE;
+
+GRANT USAGE ON DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+
+-- dbt's custom schema naming creates one physical schema per layer
+-- (ANALYTICS_STAGING, ANALYTICS_INTERMEDIATE, ANALYTICS_MARTS, ANALYTICS_SEEDS)
+-- under the target schema configured in profiles.yml, so the role needs
+-- CREATE SCHEMA on the database plus blanket grants covering both the
+-- pre-created RAW/ANALYTICS schemas and whatever dbt creates going forward.
+GRANT CREATE SCHEMA ON DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON SCHEMA RETAIL_INVENTORY.RAW TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON SCHEMA RETAIL_INVENTORY.ANALYTICS TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON FUTURE SCHEMAS IN DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON ALL TABLES IN DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON FUTURE TABLES IN DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON ALL VIEWS IN DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+GRANT ALL ON FUTURE VIEWS IN DATABASE RETAIL_INVENTORY TO ROLE RETAIL_INVENTORY_ROLE;
+
+-- Attach the role to your own user for local development:
+-- GRANT ROLE RETAIL_INVENTORY_ROLE TO USER <your_user>;
+
+-- For CI (GitHub Actions), create a dedicated service user authenticated with
+-- a key pair rather than a password -- see docs/architecture.md for the
+-- `openssl` commands to generate the key pair and
+-- `ALTER USER ... SET RSA_PUBLIC_KEY=...` to register it.
+--
+-- CREATE USER IF NOT EXISTS RETAIL_INVENTORY_CI_USER
+--   DEFAULT_ROLE = RETAIL_INVENTORY_ROLE
+--   DEFAULT_WAREHOUSE = RETAIL_INVENTORY_WH
+--   RSA_PUBLIC_KEY = '<paste generated public key here>'
+--   COMMENT = 'Service user for GitHub Actions CI';
+-- GRANT ROLE RETAIL_INVENTORY_ROLE TO USER RETAIL_INVENTORY_CI_USER;

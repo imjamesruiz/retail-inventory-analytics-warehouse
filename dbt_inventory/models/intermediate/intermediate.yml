@@ -1,0 +1,66 @@
+version: 2
+
+models:
+  - name: int_inventory_events_deduplicated
+    description: >
+      Deduplicated inventory observations (one row per event_id). Incremental:
+      unique_key=event_id, merge strategy, 48-hour lookback window on
+      observed_at to absorb late-arriving data safely. This is the base
+      table every downstream intermediate and mart model builds on.
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+      - name: source
+        tests:
+          - not_null
+      - name: observed_at
+        tests:
+          - not_null
+          - not_far_in_future:
+              arguments:
+                max_hours_ahead: 2
+
+  - name: int_inventory_state_changes
+    description: >
+      Every observation annotated with its previous status via LAG(), plus
+      derived restocked/went_out_of_stock flags. Grain: one row per event_id
+      (same grain as int_inventory_events_deduplicated).
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+
+  - name: int_product_price_changes
+    description: >
+      Every priced observation annotated with its previous price via LAG(),
+      plus the derived percent change. Grain: one row per priced event_id.
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+
+  - name: int_product_daily_inventory
+    description: >
+      One row per (source, retailer_product_id, observation_date): daily
+      observation count, in-stock rate, price range, and last known status.
+    columns:
+      - name: source
+        tests:
+          - not_null
+      - name: retailer_product_id
+        tests:
+          - not_null
+      - name: observation_date
+        tests:
+          - not_null
+      - name: availability_pct
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+                inclusive: true

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "target-89345261",
+    "retailer": "TARGET",
+    "retailer_product_id": "89345261",
+    "name": "Pokemon TCG Scarlet & Violet Booster Bundle",
+    "url": "https://www.target.com/p/pokemon-tcg-booster-bundle/-/A-89345261",
+    "category": "trading-cards",
+    "store_id": "3991"
+  },
+  {
+    "id": "target-92873140",
+    "retailer": "TARGET",
+    "retailer_product_id": "92873140",
+    "name": "Nintendo Switch OLED Console",
+    "url": "https://www.target.com/p/nintendo-switch-oled/-/A-92873140",
+    "category": "video-games",
+    "store_id": "3991"
+  },
+  {
+    "id": "walmart-51219873",
+    "retailer": "WALMART",
+    "retailer_product_id": "51219873",
+    "name": "Pokemon TCG Elite Trainer Box",
+    "url": "https://www.walmart.com/ip/pokemon-tcg-elite-trainer-box/51219873",
+    "category": "trading-cards"
+  },
+  {
+    "id": "walmart-40881122",
+    "retailer": "WALMART",
+    "retailer_product_id": "40881122",
+    "name": "PlayStation 5 Console",
+    "url": "https://www.walmart.com/ip/playstation-5-console/40881122",
+    "category": "video-games"
+  },
+  {
+    "id": "pokemon-center-scarlet-violet-etb",
+    "retailer": "POKEMON_CENTER",
+    "retailer_product_id": "scarlet-violet-elite-trainer-box",
+    "name": "Scarlet & Violet Elite Trainer Box",
+    "url": "https://www.pokemoncenter.com/products/scarlet-violet-elite-trainer-box",
+    "category": "trading-cards"
+  },
+  {
+    "id": "pokemon-center-pikachu-plush",
+    "retailer": "POKEMON_CENTER",
+    "retailer_product_id": "pikachu-plush-8-inch",
+    "name": "Pikachu Plush - 8 In.",
+    "url": "https://www.pokemoncenter.com/products/pikachu-plush-8-inch",
+    "category": "collectibles"
+  },
+  {
+    "id": "gamestop-228517",
+    "retailer": "GAMESTOP",
+    "retailer_product_id": "228517",
+    "name": "Pokemon Scarlet - Nintendo Switch",
+    "url": "https://www.gamestop.com/video-games/switch/products/pokemon-scarlet/228517.html",
+    "category": "video-games"
+  },
+  {
+    "id": "gamestop-331092",
+    "retailer": "GAMESTOP",
+    "retailer_product_id": "331092",
+    "name": "Pokemon TCG Booster Box - Twilight Masquerade",
+    "url": "https://www.gamestop.com/collectibles/trading-cards/products/pokemon-tcg-booster-box/331092.html",
+    "category": "trading-cards"
+  }
+]

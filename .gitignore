@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Env
+.env
+!.env.example
+
+# Data (fixtures are committed, raw/generated output is not)
+data/raw/
+data/sample_output/*
+!data/sample_output/.gitkeep
+
+# dbt
+dbt_inventory/target/
+dbt_inventory/dbt_packages/
+dbt_inventory/logs/
+.user.yml
+
+# Snowflake key material
+*.p8
+*.pem
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

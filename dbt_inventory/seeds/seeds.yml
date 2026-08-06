@@ -1,0 +1,24 @@
+version: 2
+
+seeds:
+  - name: seed_products
+    description: >
+      Tracked-product catalog, the same set tracked by
+      src/inventory_pipeline/catalog.py (data/fixtures/products.json),
+      encoded as a CSV since dbt seeds are CSV-only.
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: retailer
+        tests:
+          - not_null
+
+  - name: seed_retailers
+    description: Retailer reference data -- display name, website, integration mode.
+    columns:
+      - name: retailer_code
+        tests:
+          - not_null
+          - unique

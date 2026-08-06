@@ -1,0 +1,37 @@
+name: "retail_inventory"
+version: "1.0.0"
+config-version: 2
+
+profile: "retail_inventory"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Observations older than this are considered a late/anomalous freshness signal,
+  # not a hard failure -- surfaced in mart_retailer_summary rather than blocking a build.
+  freshness_warn_hours: 26
+
+models:
+  retail_inventory:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+seeds:
+  retail_inventory:
+    +schema: seeds

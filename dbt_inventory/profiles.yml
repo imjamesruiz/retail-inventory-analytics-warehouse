@@ -1,0 +1,33 @@
+# Committed to version control deliberately -- every value here comes from
+# an environment variable, so this file never contains a secret. It's picked
+# up because Makefile/CLI dbt commands run with `--profiles-dir .` from
+# inside dbt_inventory/.
+#
+# Two targets:
+#   dev -- password auth, for local development (SNOWFLAKE_PASSWORD)
+#   ci  -- key-pair auth, for GitHub Actions (SNOWFLAKE_PRIVATE_KEY_PATH)
+# Select with `dbt build --target ci` or `DBT_TARGET=ci`.
+
+retail_inventory:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'RETAIL_INVENTORY_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'RETAIL_INVENTORY_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'RETAIL_INVENTORY') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA_ANALYTICS', 'ANALYTICS') }}"
+      threads: 4
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH', '') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'RETAIL_INVENTORY_ROLE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'RETAIL_INVENTORY_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'RETAIL_INVENTORY') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA_ANALYTICS', 'ANALYTICS') }}"
+      threads: 4

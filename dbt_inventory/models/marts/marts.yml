@@ -1,0 +1,139 @@
+version: 2
+
+models:
+  - name: dim_product
+    description: "One row per tracked product (grain: source + retailer_product_id)."
+    columns:
+      - name: product_key
+        tests:
+          - not_null
+          - unique
+      - name: source
+        tests:
+          - not_null
+      - name: retailer_product_id
+        tests:
+          - not_null
+
+  - name: dim_retailer
+    description: One row per retailer integrated into this project.
+    columns:
+      - name: retailer_key
+        tests:
+          - not_null
+          - unique
+      - name: source
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_date
+    description: Standard date dimension, 2024-01-01 through one year from today.
+    columns:
+      - name: date_key
+        tests:
+          - not_null
+          - unique
+
+  - name: fact_inventory_observation
+    description: >
+      Grain: one row per inventory/pricing observation (one row per
+      event_id). The largest fact table -- every poll of every product.
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: retailer_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_retailer')
+                field: retailer_key
+      - name: inventory_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ["IN_STOCK", "OUT_OF_STOCK", "PREORDER", "BACKORDER", "UNKNOWN"]
+      - name: price
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+
+  - name: fact_inventory_state_change
+    description: >
+      Grain: one row per detected inventory-status transition. Observations
+      where nothing changed from the prior poll are not represented here --
+      see fact_inventory_observation for the full observation stream.
+    columns:
+      - name: state_change_event_id
+        tests:
+          - not_null
+          - unique
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+
+  - name: fact_price_observation
+    description: >
+      Grain: one row per observation that has a non-null price, pre-joined
+      to its previous price and the resulting percent change.
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+          - unique
+      - name: product_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+
+  - name: mart_daily_product_availability
+    description: >
+      Grain: one row per (product, day). Daily observation count, in-stock
+      rate, price range, and last known status -- the source for the
+      dashboard's availability timeline.
+    columns:
+      - name: product_key
+        tests:
+          - not_null
+      - name: observation_date
+        tests:
+          - not_null
+      - name: availability_pct
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+                inclusive: true
+
+  - name: mart_retailer_summary
+    description: >
+      Grain: one row per retailer. Pipeline health: run success rate, error
+      volume, average duration, freshness, and average product availability.
+    columns:
+      - name: retailer_key
+        tests:
+          - not_null
+          - unique
+      - name: run_success_rate_pct
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+                inclusive: true
