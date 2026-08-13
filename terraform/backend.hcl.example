@@ -1,0 +1,6 @@
+# Copy to backend.hcl (gitignored) and fill in with the outputs of
+# `terraform -chdir=bootstrap output`. Then: terraform init -backend-config=backend.hcl
+bucket         = "retail-inventory-tfstate-<your-account-id>"
+key            = "retail-inventory-analytics-warehouse/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "retail-inventory-tflock"
