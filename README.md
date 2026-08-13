@@ -111,7 +111,9 @@ retail-inventory-analytics-warehouse/
 ├── dashboard/                    Streamlit app (app.py, db.py, queries.py)
 ├── tests/unit/                   pytest unit tests (56 tests, no external deps)
 ├── tests/integration/            scaffolding for tests requiring live creds
-├── .github/workflows/            PR validation + scheduled pipeline
+├── terraform/                    IaC for the AWS + Snowflake resources above
+│                                  (bootstrap/, modules/s3, modules/iam, modules/snowflake)
+├── .github/workflows/            PR validation, scheduled pipeline, terraform plan
 └── docs/                         architecture, data dictionary, decisions, metrics
 ```
 
@@ -170,7 +172,7 @@ backends, and the loader reads through the same `RawStorage` interface either wa
 
 ## GitHub Actions
 
-Two workflows are included (see [.github/workflows/](.github/workflows/)):
+Three workflows are included (see [.github/workflows/](.github/workflows/)):
 
 - **`pr-validation.yml`** -- lint, format check, and unit tests always run;
   `dbt parse` (structural validation, no warehouse needed) always runs;
@@ -179,6 +181,10 @@ Two workflows are included (see [.github/workflows/](.github/workflows/)):
 - **`scheduled-pipeline.yml`** -- runs daily (fixture mode) or on manual dispatch
   (fixture or live), loads Snowflake, runs `dbt build`, and uploads run manifests
   and dbt results as artifacts. Fails loudly (nonzero exit) if any dbt test fails.
+- **`terraform-plan.yml`** -- `terraform fmt -check` and `terraform validate`
+  always run on PRs touching `terraform/`; `terraform plan` runs only if AWS/
+  Snowflake secrets are configured. Never applies -- see
+  [Infrastructure as Code (Terraform)](#infrastructure-as-code-terraform) below.
 
 **Manual setup required** (this project does not push secrets for you):
 in your GitHub repo settings, add these encrypted secrets: `SNOWFLAKE_ACCOUNT`,
@@ -186,6 +192,142 @@ in your GitHub repo settings, add these encrypted secrets: `SNOWFLAKE_ACCOUNT`,
 not a password -- see [docs/architecture.md](docs/architecture.md)),
 `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`,
 `SNOWFLAKE_SCHEMA_ANALYTICS`, and optionally `WALMART_API_KEY` for live-mode runs.
+`terraform-plan.yml` needs its own set, listed in the Terraform section below.
+
+## Infrastructure as Code (Terraform)
+
+Every AWS and Snowflake resource above was originally created by hand
+(`snowflake/setup.sql`, `snowflake/roles.sql`, and a manually-created S3
+bucket). [`terraform/`](terraform/) codifies that same setup so it can be
+recreated, reviewed, and diffed instead of clicked or run ad hoc:
+
+```
+terraform/
+├── bootstrap/          -- one-time: creates the state bucket + lock table (local state)
+├── modules/
+│   ├── s3/              -- raw payload bucket: versioning, SSE-S3, public access block, Glacier lifecycle
+│   ├── iam/              -- ingestion role, GitHub Actions CI role, Snowflake storage-integration role
+│   └── snowflake/       -- database, RAW/ANALYTICS schemas, XSMALL warehouse, dbt role, storage integration
+├── main.tf, variables.tf, outputs.tf, versions.tf, backend.tf
+├── terraform.tfvars.example   -- copy to terraform.tfvars (gitignored)
+└── backend.hcl.example        -- copy to backend.hcl (gitignored)
+```
+
+A few design choices worth calling out:
+
+- **RAW/ANALYTICS, not raw/staging/marts.** The Snowflake module creates the
+  two schemas that actually exist today -- `RAW` and `ANALYTICS` -- rather
+  than a literal staging/marts split. dbt's custom schema naming
+  (`+schema:` in `dbt_project.yml`) creates `ANALYTICS_STAGING`,
+  `ANALYTICS_INTERMEDIATE`, `ANALYTICS_MARTS`, and `ANALYTICS_SEEDS` under
+  `ANALYTICS` at run time, which is why the dbt role gets `CREATE SCHEMA` +
+  future-schema grants instead of Terraform trying to pre-create every layer
+  (see `modules/snowflake/variables.tf` for the full reasoning).
+- **GitHub Actions authenticates via OIDC, not access keys.** Both the
+  ingestion role and the CI plan role are assumed through GitHub's OIDC
+  provider, scoped by repo (and, for ingestion, to the `main` branch) --
+  no long-lived AWS credentials ever live in a GitHub secret.
+- **The CI role is read-only.** It can read state, hold the DynamoDB lock,
+  and describe the S3/IAM resources this config manages -- enough for an
+  accurate `terraform plan` -- but has no mutating AWS permissions. Applies
+  are run manually, from a developer machine, on purpose.
+
+### The bootstrap problem: the state bucket has to exist before the backend can use it
+
+`terraform/backend.tf` configures an S3 backend with DynamoDB locking, but
+Terraform's S3 backend can't create its own bucket and lock table -- by the
+time `terraform init` runs against that backend, both must already exist.
+Pointing the main config at itself to create them is circular.
+
+The fix is `terraform/bootstrap/`: a small, separate root module with its
+own **local** state (deliberately not the S3 backend) that creates exactly
+two things -- the state bucket and the DynamoDB lock table -- and nothing
+else. Run it once, before anything else:
+
+```bash
+cd terraform/bootstrap
+cp terraform.tfvars.example terraform.tfvars   # set a globally-unique bucket name
+terraform init
+terraform apply
+terraform output   # note state_bucket_name and lock_table_name
+```
+
+Then point the main config at what bootstrap created:
+
+```bash
+cd ../
+cp backend.hcl.example backend.hcl             # fill in from the outputs above
+cp terraform.tfvars.example terraform.tfvars   # fill in the rest
+terraform init -backend-config=backend.hcl
+```
+
+`bootstrap/`'s own state stays local (`terraform/bootstrap/terraform.tfstate`,
+gitignored). That's a deliberate tradeoff, not an oversight: these two
+resources change essentially never after creation, so losing that local
+state file just means re-running `terraform import` against the
+already-existing bucket/table if you ever need to modify them again -- it
+does not put the main project's state at risk. `aws_s3_bucket.tfstate` also
+sets `prevent_destroy = true` as a second safety net against `terraform
+destroy` ever taking out the one thing everything else depends on.
+
+### The other bootstrap problem: the Snowflake storage integration and its IAM role trust each other
+
+`snowflake_storage_integration` needs an IAM role ARN to be created, but the
+IAM role's trust policy needs to name Snowflake's actual IAM user ARN and
+external ID -- values Snowflake only generates *after* the integration
+exists. That's a genuine dependency cycle (A needs B's output, B needs A's
+output), not something Terraform's graph can resolve in one pass, so this
+needs two applies:
+
+1. **First apply** (`storage_integration_iam_user_arn` and
+   `storage_integration_external_id` left as their default `""`):
+   `modules/iam` creates the role with a locked placeholder trust policy
+   (trusts only the account's own root ARN, which by itself grants no
+   cross-account access), and `modules/snowflake` creates the storage
+   integration pointed at that role's ARN.
+2. Read back the values Snowflake generated:
+   ```bash
+   terraform output snowflake_storage_integration_iam_user_arn
+   terraform output snowflake_storage_integration_external_id
+   ```
+3. **Second apply**, passing those back in:
+   ```bash
+   terraform apply \
+     -var "storage_integration_iam_user_arn=<value from step 2>" \
+     -var "storage_integration_external_id=<value from step 2>"
+   ```
+   This updates only the IAM role's trust policy to trust that specific
+   Snowflake IAM user + external ID -- everything else is a no-op diff.
+
+Until step 3 runs, the storage integration exists in Snowflake but can't
+actually assume the role, so `COPY INTO` / external stages against it will
+fail with an access-denied error. That's expected for a config this size;
+it's the same tradeoff AWS's own docs describe for this exact integration
+pattern.
+
+### Applying for the first time
+
+```bash
+cd terraform
+terraform init -backend-config=backend.hcl
+terraform plan   # review before applying anything by hand
+terraform apply
+# then the storage-integration second apply above
+```
+
+Snowflake credentials for the provider itself are read from environment
+variables, not `terraform.tfvars` -- set `SNOWFLAKE_ORGANIZATION_NAME`,
+`SNOWFLAKE_ACCOUNT_NAME`, `SNOWFLAKE_USER`, and either
+`SNOWFLAKE_PRIVATE_KEY_PATH` or `SNOWFLAKE_PASSWORD` before running
+`terraform plan`/`apply`. (These are the current, non-deprecated equivalents
+of the combined `SNOWFLAKE_ACCOUNT` identifier used elsewhere in this
+project -- the Snowflake Terraform provider warns on `account` /
+`SNOWFLAKE_ACCOUNT`.) For `terraform-plan.yml` in CI, the equivalent repo
+secrets are `AWS_CI_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`,
+`TF_STATE_BUCKET_ARN`, `TF_LOCK_TABLE`, `TF_LOCK_TABLE_ARN`,
+`TF_VAR_RAW_BUCKET_NAME`, `SNOWFLAKE_ORGANIZATION_NAME`,
+`SNOWFLAKE_ACCOUNT_NAME`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY`, and
+`SNOWFLAKE_ROLE`.
 
 ## Example commands
 

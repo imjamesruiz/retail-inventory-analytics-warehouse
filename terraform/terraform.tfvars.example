@@ -1,0 +1,24 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Snowflake credentials are NOT set here -- see the README for the
+# SNOWFLAKE_* environment variables the provider reads instead.
+
+aws_region        = "us-east-1"
+project_name      = "retail-inventory"
+raw_bucket_name   = "retail-inventory-raw-<your-account-id>"
+github_repository = "imjamesruiz/retail-inventory-analytics-warehouse"
+
+# From `terraform -chdir=bootstrap output`
+state_bucket_arn = "arn:aws:s3:::retail-inventory-tfstate-<your-account-id>"
+lock_table_arn   = "arn:aws:dynamodb:us-east-1:<your-account-id>:table/retail-inventory-tflock"
+
+# Leave both empty on the first apply -- see the storage integration
+# bootstrap note in the README for how to fill these in on the second apply.
+storage_integration_iam_user_arn = ""
+storage_integration_external_id  = ""
+
+# Optional: attach the dbt role to your own Snowflake username for local dev.
+snowflake_grant_role_to_users = ["YOUR_SNOWFLAKE_USERNAME"]
+
+# Optional: paste the CI service user's RSA public key once generated
+# (see docs/architecture.md) to have Terraform create RETAIL_INVENTORY_CI_USER.
+snowflake_ci_user_rsa_public_key = ""

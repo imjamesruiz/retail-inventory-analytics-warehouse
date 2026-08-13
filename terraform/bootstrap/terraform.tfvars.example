@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Bucket names are globally unique across all AWS accounts -- suffixing with
+# your account ID is a simple way to guarantee that.
+
+aws_region        = "us-east-1"
+state_bucket_name = "retail-inventory-tfstate-<your-account-id>"
+lock_table_name   = "retail-inventory-tflock"

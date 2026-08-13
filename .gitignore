@@ -38,3 +38,15 @@ dbt_inventory/logs/
 .DS_Store
 .vscode/
 .idea/
+
+# Terraform
+terraform/**/.terraform/
+terraform/**/.terraform.tfstate.lock.info
+terraform/**/terraform.tfstate
+terraform/**/terraform.tfstate.backup
+terraform/**/*.tfplan
+terraform/**/terraform.tfvars
+terraform/**/backend.hcl
+!terraform/**/terraform.tfvars.example
+!terraform/**/backend.hcl.example
+# .terraform.lock.hcl IS committed (pins provider versions) -- do not ignore it
