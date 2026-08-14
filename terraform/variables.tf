@@ -42,23 +42,6 @@ variable "glacier_transition_days" {
 
 # --- IAM (modules/iam) --------------------------------------------------
 
-variable "github_repository" {
-  type        = string
-  description = "GitHub repository in `owner/repo` form (e.g. imjamesruiz/retail-inventory-analytics-warehouse). Scopes the OIDC trust policies so only workflows in this repo can assume the ingestion and CI roles."
-}
-
-variable "create_github_oidc_provider" {
-  type        = bool
-  description = "Whether to create the GitHub Actions OIDC identity provider. AWS allows only one per URL per account -- set false and supply github_oidc_provider_arn if this account already has one (e.g. from another project)."
-  default     = true
-}
-
-variable "github_oidc_provider_arn" {
-  type        = string
-  description = "ARN of an existing GitHub OIDC provider. Required when create_github_oidc_provider is false, ignored otherwise."
-  default     = ""
-}
-
 variable "state_bucket_arn" {
   type        = string
   description = "ARN of the Terraform state bucket from `terraform -chdir=bootstrap output state_bucket_arn`. Lets the CI plan role read remote state."
@@ -136,7 +119,7 @@ variable "snowflake_grant_role_to_users" {
 
 variable "snowflake_ci_user_name" {
   type        = string
-  description = "Name of the key-pair-authenticated service user for GitHub Actions CI."
+  description = "Name of the key-pair-authenticated service user for Jenkins CI."
   default     = "RETAIL_INVENTORY_CI_USER"
 }
 

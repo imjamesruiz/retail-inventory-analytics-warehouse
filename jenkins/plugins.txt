@@ -1,0 +1,9 @@
+workflow-aggregator
+git
+github
+credentials-binding
+configuration-as-code
+pipeline-utility-steps
+ws-cleanup
+timestamper
+ansicolor

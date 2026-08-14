@@ -12,14 +12,14 @@ output "raw_bucket_arn" {
 
 # --- IAM -------------------------------------------------------------
 
-output "ingestion_role_arn" {
-  value       = module.iam.ingestion_role_arn
-  description = "ARN the pipeline assumes (via GitHub OIDC) for S3 access. Configure scheduled-pipeline.yml's `aws-actions/configure-aws-credentials` step with this as role-to-assume."
+output "jenkins_ci_user_arn" {
+  value       = module.iam.jenkins_ci_user_arn
+  description = "ARN of the IAM user Jenkins jobs authenticate as (S3 ingestion + read-only terraform plan)."
 }
 
-output "github_actions_ci_role_arn" {
-  value       = module.iam.github_actions_ci_role_arn
-  description = "ARN the terraform-plan.yml workflow assumes for `terraform plan`. Read-only."
+output "jenkins_ci_user_name" {
+  value       = module.iam.jenkins_ci_user_name
+  description = "Name of the Jenkins CI IAM user. Run `aws iam create-access-key --user-name <this>` to mint credentials for Jenkins' credential store."
 }
 
 output "storage_integration_role_arn" {

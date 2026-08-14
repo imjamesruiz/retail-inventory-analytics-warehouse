@@ -86,7 +86,7 @@ suspenders `ROW_NUMBER()` dedup).
 Spark, Kafka, Airflow, Kubernetes, and Terraform would all be defensible choices
 at a larger scale, but none of them solve a problem this project actually has:
 data volume is small enough that pandas/Snowflake handle loads directly, there's
-no continuous streaming requirement, GitHub Actions' cron trigger is sufficient
+no continuous streaming requirement, Jenkins' cron trigger is sufficient
 orchestration for a daily batch job, and Snowflake setup is simple enough
 one-time SQL scripts document it without needing Terraform state to manage.
 Adding them would demonstrate familiarity with the tools' existence, not with

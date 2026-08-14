@@ -21,15 +21,12 @@ module "s3" {
 module "iam" {
   source = "./modules/iam"
 
-  project_name                = var.project_name
-  bucket_arn                  = module.s3.bucket_arn
-  raw_prefix                  = var.raw_prefix
-  github_repository           = var.github_repository
-  create_github_oidc_provider = var.create_github_oidc_provider
-  github_oidc_provider_arn    = var.github_oidc_provider_arn
-  state_bucket_arn            = var.state_bucket_arn
-  state_object_key            = var.state_object_key
-  lock_table_arn              = var.lock_table_arn
+  project_name     = var.project_name
+  bucket_arn       = module.s3.bucket_arn
+  raw_prefix       = var.raw_prefix
+  state_bucket_arn = var.state_bucket_arn
+  state_object_key = var.state_object_key
+  lock_table_arn   = var.lock_table_arn
 
   storage_integration_iam_user_arn = var.storage_integration_iam_user_arn
   storage_integration_external_id  = var.storage_integration_external_id

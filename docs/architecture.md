@@ -76,9 +76,9 @@ scheduled run that failed and was retried the next day).
 ## CI: Snowflake key-pair authentication setup
 
 Local development uses password auth (simplest for a single developer).
-GitHub Actions uses key-pair auth instead, since long-lived passwords in CI
-secrets are a weaker posture than a key that can be scoped and rotated
-independently:
+Jenkins uses key-pair auth instead, since a long-lived password sitting in a
+CI credential store is a weaker posture than a key that can be scoped and
+rotated independently:
 
 ```bash
 # 1. Generate an unencrypted private key + matching public key
@@ -90,27 +90,32 @@ openssl rsa -in snowflake_ci_key.p8 -pubout -out snowflake_ci_key.pub
 #    ALTER USER RETAIL_INVENTORY_CI_USER SET RSA_PUBLIC_KEY='<key contents>';
 #    (see the commented-out CREATE USER block in snowflake/roles.sql)
 
-# 3. Store the PRIVATE key as a GitHub Actions secret
-gh secret set SNOWFLAKE_PRIVATE_KEY < snowflake_ci_key.p8
+# 3. Upload the PRIVATE key as a Jenkins "Secret file" credential with ID
+#    snowflake-private-key (Manage Jenkins -> Credentials -> New Credentials)
 ```
 
-## GitHub Actions secrets checklist
+## Jenkins credentials checklist
 
-Set these in the repo's Settings -> Secrets and variables -> Actions:
+Add these in Jenkins (Manage Jenkins -> Credentials) -- see the
+[CI/CD (Jenkins)](../README.md#cicd-jenkins) section of the root README for
+the full list including the Terraform-job AWS credentials:
 
-- `SNOWFLAKE_ACCOUNT`
-- `SNOWFLAKE_USER` (the CI service user, e.g. `RETAIL_INVENTORY_CI_USER`)
-- `SNOWFLAKE_PRIVATE_KEY` (contents of the `.p8` file from the steps above)
-- `SNOWFLAKE_ROLE` (`RETAIL_INVENTORY_ROLE`)
-- `SNOWFLAKE_WAREHOUSE` (`RETAIL_INVENTORY_WH`)
-- `SNOWFLAKE_DATABASE` (`RETAIL_INVENTORY`)
-- `SNOWFLAKE_SCHEMA` (`RAW`)
-- `SNOWFLAKE_SCHEMA_ANALYTICS` (`CI_ANALYTICS` -- a separate schema from local dev, so CI runs never collide with your local `ANALYTICS_*` schemas)
-- `WALMART_API_KEY` (optional, only needed for live-mode scheduled runs)
+- `snowflake-private-key` (Secret file, the `.p8` from the steps above)
+- `snowflake-account`, `snowflake-user` (the CI service user, e.g.
+  `RETAIL_INVENTORY_CI_USER`), `snowflake-role` (`RETAIL_INVENTORY_ROLE`),
+  `snowflake-warehouse` (`RETAIL_INVENTORY_WH`), `snowflake-database`
+  (`RETAIL_INVENTORY`), `snowflake-schema` (`RAW`) -- each a Secret text
+  credential
+- `snowflake-schema-analytics` (Secret text, `CI_ANALYTICS` -- a separate
+  schema from local dev, so CI runs never collide with your local
+  `ANALYTICS_*` schemas)
+- `walmart-api-key` (Secret text, optional, only needed for live-mode
+  scheduled runs)
 
-Without these, `pr-validation.yml`'s `dbt-build` job and `scheduled-pipeline.yml`
-are both skipped (their `if:` conditions check for `SNOWFLAKE_ACCOUNT`) --
-lint, unit tests, and `dbt parse` still run on every PR regardless.
+Without these, the `Jenkinsfile`'s live-build stage (gated behind the
+`RUN_DBT_BUILD` parameter) and `jenkins/Jenkinsfile.scheduled` will fail on
+missing credentials -- lint, unit tests, and `dbt parse` still run and pass
+with no credentials configured at all.
 
 ## Two real bugs found running this against a live Snowflake account
 

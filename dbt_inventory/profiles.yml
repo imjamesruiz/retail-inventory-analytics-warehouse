@@ -5,7 +5,7 @@
 #
 # Two targets:
 #   dev -- password auth, for local development (SNOWFLAKE_PASSWORD)
-#   ci  -- key-pair auth, for GitHub Actions (SNOWFLAKE_PRIVATE_KEY_PATH)
+#   ci  -- key-pair auth, for Jenkins (SNOWFLAKE_PRIVATE_KEY_PATH)
 # Select with `dbt build --target ci` or `DBT_TARGET=ci`.
 
 retail_inventory:

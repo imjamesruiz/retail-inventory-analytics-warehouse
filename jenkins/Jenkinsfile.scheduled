@@ -1,0 +1,100 @@
+// Scheduled ingestion pipeline -- mirrors the old
+// .github/workflows/scheduled-pipeline.yml. Configure this job's build
+// trigger as "Build periodically" with schedule `H 13 * * *` (Jenkins adds
+// jitter via `H`; the original cron was a fixed `0 13 * * *`).
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        choice(
+            name: 'SOURCE_MODE',
+            choices: ['fixture', 'live'],
+            description: 'Data source mode.'
+        )
+    }
+
+    environment {
+        VENV = "${WORKSPACE}/.venv"
+        RAW_STORAGE_BACKEND = 'local'
+        RAW_DATA_PATH       = './data/scheduled-raw'
+        DBT_TARGET          = 'ci'
+    }
+
+    stages {
+        stage('Install dependencies') {
+            steps {
+                sh '''
+                    python3 -m venv "$VENV"
+                    "$VENV/bin/pip" install --upgrade pip -q
+                    "$VENV/bin/pip" install -e ".[dev,dbt]" -q
+                '''
+            }
+        }
+
+        stage('Ingest') {
+            steps {
+                withCredentials([
+                    string(credentialsId: 'walmart-api-key', variable: 'WALMART_API_KEY'),
+                ]) {
+                    sh '''
+                        if [ "$SOURCE_MODE" = "live" ]; then
+                            "$VENV/bin/python" -m inventory_pipeline.cli ingest --source-mode live
+                        else
+                            "$VENV/bin/python" -m inventory_pipeline.cli ingest --source-mode fixture --backfill-days 1
+                        fi
+                    '''
+                }
+            }
+        }
+
+        stage('Load into Snowflake') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'snowflake-private-key', variable: 'SNOWFLAKE_PRIVATE_KEY_PATH'),
+                    string(credentialsId: 'snowflake-account', variable: 'SNOWFLAKE_ACCOUNT'),
+                    string(credentialsId: 'snowflake-user', variable: 'SNOWFLAKE_USER'),
+                    string(credentialsId: 'snowflake-role', variable: 'SNOWFLAKE_ROLE'),
+                    string(credentialsId: 'snowflake-warehouse', variable: 'SNOWFLAKE_WAREHOUSE'),
+                    string(credentialsId: 'snowflake-database', variable: 'SNOWFLAKE_DATABASE'),
+                    string(credentialsId: 'snowflake-schema', variable: 'SNOWFLAKE_SCHEMA'),
+                ]) {
+                    sh '"$VENV/bin/python" -m inventory_pipeline.cli load-snowflake'
+                }
+            }
+        }
+
+        stage('dbt build') {
+            // No continue-on-error -- a failing test here means bad data
+            // reached the warehouse, and that should fail the run visibly
+            // rather than let a broken dashboard ship silently.
+            steps {
+                withCredentials([
+                    file(credentialsId: 'snowflake-private-key', variable: 'SNOWFLAKE_PRIVATE_KEY_PATH'),
+                    string(credentialsId: 'snowflake-account', variable: 'SNOWFLAKE_ACCOUNT'),
+                    string(credentialsId: 'snowflake-user', variable: 'SNOWFLAKE_USER'),
+                    string(credentialsId: 'snowflake-role', variable: 'SNOWFLAKE_ROLE'),
+                    string(credentialsId: 'snowflake-warehouse', variable: 'SNOWFLAKE_WAREHOUSE'),
+                    string(credentialsId: 'snowflake-database', variable: 'SNOWFLAKE_DATABASE'),
+                    string(credentialsId: 'snowflake-schema-analytics', variable: 'SNOWFLAKE_SCHEMA_ANALYTICS'),
+                ]) {
+                    dir('dbt_inventory') {
+                        sh '"$VENV/bin/dbt" build --profiles-dir .'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'data/scheduled-raw/**/manifest.json, dbt_inventory/target/run_results.json, dbt_inventory/logs/dbt.log', allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}

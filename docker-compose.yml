@@ -6,3 +6,17 @@ services:
     ports:
       - "8501:8501"
     restart: unless-stopped
+
+  jenkins:
+    build: ./jenkins
+    env_file:
+      - .env.jenkins
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:

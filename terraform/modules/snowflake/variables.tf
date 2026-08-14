@@ -55,7 +55,7 @@ variable "grant_role_to_users" {
 
 variable "ci_user_name" {
   type        = string
-  description = "Name of the key-pair-authenticated service user for GitHub Actions CI (matches RETAIL_INVENTORY_CI_USER in snowflake/roles.sql)."
+  description = "Name of the key-pair-authenticated service user for Jenkins CI (matches RETAIL_INVENTORY_CI_USER in snowflake/roles.sql)."
   default     = "RETAIL_INVENTORY_CI_USER"
 }
 

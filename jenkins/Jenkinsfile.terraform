@@ -1,0 +1,87 @@
+// Terraform plan pipeline -- mirrors the old
+// .github/workflows/terraform-plan.yml. `fmt`/`validate` run unconditionally;
+// the real `plan` stage is gated to changes under terraform/** and needs the
+// AWS + Terraform-state + Snowflake credentials listed below. Configure this
+// job's SCM polling trigger (or "Build periodically") since local Jenkins has
+// no public endpoint for GitHub to webhook into.
+//
+// Read-only by design, same as the GitHub Actions version: the
+// jenkins-ci IAM user this uses (terraform/modules/iam) has no mutating AWS
+// permissions. `apply` is never run from CI -- only manually, locally.
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        VENV = "${WORKSPACE}/.venv"
+        PATH = "/usr/local/bin:${env.PATH}"
+    }
+
+    stages {
+        stage('terraform fmt -check') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform fmt -check -recursive'
+                }
+            }
+        }
+
+        stage('terraform init (providers only)') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform init -backend=false'
+                }
+            }
+        }
+
+        stage('terraform validate') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform validate'
+                }
+            }
+        }
+
+        stage('terraform plan') {
+            when {
+                changeset "terraform/**"
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: 'aws-jenkins-ci', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY'),
+                    string(credentialsId: 'aws-region', variable: 'AWS_REGION'),
+                    string(credentialsId: 'tf-state-bucket', variable: 'TF_STATE_BUCKET'),
+                    string(credentialsId: 'tf-lock-table', variable: 'TF_LOCK_TABLE'),
+                    string(credentialsId: 'tf-var-raw-bucket-name', variable: 'TF_VAR_raw_bucket_name'),
+                    file(credentialsId: 'snowflake-private-key', variable: 'SNOWFLAKE_PRIVATE_KEY_PATH'),
+                    string(credentialsId: 'snowflake-organization-name', variable: 'SNOWFLAKE_ORGANIZATION_NAME'),
+                    string(credentialsId: 'snowflake-account-name', variable: 'SNOWFLAKE_ACCOUNT_NAME'),
+                    string(credentialsId: 'snowflake-user', variable: 'SNOWFLAKE_USER'),
+                    string(credentialsId: 'snowflake-role', variable: 'SNOWFLAKE_ROLE'),
+                ]) {
+                    dir('terraform') {
+                        sh '''
+                            terraform init \
+                                -backend-config="bucket=$TF_STATE_BUCKET" \
+                                -backend-config="key=retail-inventory-analytics-warehouse/terraform.tfstate" \
+                                -backend-config="region=$AWS_REGION" \
+                                -backend-config="dynamodb_table=$TF_LOCK_TABLE"
+                            terraform plan -no-color -input=false
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}

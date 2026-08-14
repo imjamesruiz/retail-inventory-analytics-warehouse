@@ -18,6 +18,11 @@ resource "snowflake_schema" "this" {
   database = snowflake_database.this.name
   name     = each.value
   comment  = "Managed by Terraform (modules/snowflake)"
+
+  # Pinned explicitly: the provider's unset default ("default") differs from
+  # the explicit "false" already on these pre-existing schemas, which forces
+  # a destroy+recreate (dropping every table inside) on import otherwise.
+  is_transient = false
 }
 
 resource "snowflake_account_role" "dbt" {
@@ -134,7 +139,7 @@ resource "snowflake_user" "ci" {
   default_role      = snowflake_account_role.dbt.name
   default_warehouse = snowflake_warehouse.this.name
   rsa_public_key    = var.ci_user_rsa_public_key
-  comment           = "Service user for GitHub Actions CI"
+  comment           = "Service user for Jenkins CI"
 }
 
 resource "snowflake_grant_account_role" "ci_user" {

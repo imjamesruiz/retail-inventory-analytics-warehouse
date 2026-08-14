@@ -1,6 +1,6 @@
 # Retail Inventory Analytics Warehouse
 
-**Snowflake · dbt · Python · SQL · AWS S3 · GitHub Actions · Streamlit**
+**Snowflake · dbt · Python · SQL · AWS S3 · Terraform · Jenkins · Streamlit**
 
 An end-to-end ELT pipeline that collects retail inventory and pricing observations,
 preserves them immutably, loads them into Snowflake, transforms them through dbt
@@ -113,7 +113,8 @@ retail-inventory-analytics-warehouse/
 ├── tests/integration/            scaffolding for tests requiring live creds
 ├── terraform/                    IaC for the AWS + Snowflake resources above
 │                                  (bootstrap/, modules/s3, modules/iam, modules/snowflake)
-├── .github/workflows/            PR validation, scheduled pipeline, terraform plan
+├── jenkins/, Jenkinsfile*        Local Jenkins controller image + pipelines
+│                                  (PR validation, scheduled pipeline, terraform plan)
 └── docs/                         architecture, data dictionary, decisions, metrics
 ```
 
@@ -170,29 +171,61 @@ project. To use S3 instead: create a bucket, set `RAW_STORAGE_BACKEND=s3`,
 running in AWS) in `.env`. The same partitioned key layout is used in both
 backends, and the loader reads through the same `RawStorage` interface either way.
 
-## GitHub Actions
+## CI/CD (Jenkins)
 
-Three workflows are included (see [.github/workflows/](.github/workflows/)):
+CI/CD runs on a local Jenkins controller (Docker), not a hosted SaaS runner --
+see [`jenkins/`](jenkins/) for the image and [`Jenkinsfile`](Jenkinsfile) /
+[`jenkins/Jenkinsfile.scheduled`](jenkins/Jenkinsfile.scheduled) /
+[`jenkins/Jenkinsfile.terraform`](jenkins/Jenkinsfile.terraform) for the three
+pipelines:
 
-- **`pr-validation.yml`** -- lint, format check, and unit tests always run;
-  `dbt parse` (structural validation, no warehouse needed) always runs;
-  `dbt build` against a real Snowflake dev schema runs only if Snowflake secrets
-  are configured on the repo.
-- **`scheduled-pipeline.yml`** -- runs daily (fixture mode) or on manual dispatch
-  (fixture or live), loads Snowflake, runs `dbt build`, and uploads run manifests
-  and dbt results as artifacts. Fails loudly (nonzero exit) if any dbt test fails.
-- **`terraform-plan.yml`** -- `terraform fmt -check` and `terraform validate`
-  always run on PRs touching `terraform/`; `terraform plan` runs only if AWS/
-  Snowflake secrets are configured. Never applies -- see
-  [Infrastructure as Code (Terraform)](#infrastructure-as-code-terraform) below.
+- **`Jenkinsfile`** (PR validation) -- lint, format check, and unit tests
+  always run; `dbt parse` (structural validation, no warehouse needed) always
+  runs; ingest + load + `dbt build` against a real Snowflake CI schema runs
+  only when the `RUN_DBT_BUILD` build parameter is checked (Jenkins has no
+  GitHub-Actions-style "only if this secret exists" condition, so it's an
+  explicit parameter instead).
+- **`jenkins/Jenkinsfile.scheduled`** -- runs on a cron trigger (fixture mode)
+  or manually with the `SOURCE_MODE` build parameter (fixture or live), loads
+  Snowflake, runs `dbt build`, and archives run manifests and dbt results as
+  build artifacts. Fails loudly (nonzero exit) if any dbt test fails.
+- **`jenkins/Jenkinsfile.terraform`** -- `terraform fmt -check` and
+  `terraform validate` always run; the real `terraform plan` stage is gated to
+  changes under `terraform/` and needs AWS/Snowflake credentials. Never
+  applies -- see [Infrastructure as Code (Terraform)](#infrastructure-as-code-terraform)
+  below.
 
-**Manual setup required** (this project does not push secrets for you):
-in your GitHub repo settings, add these encrypted secrets: `SNOWFLAKE_ACCOUNT`,
-`SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY` (contents of a key-pair private key,
-not a password -- see [docs/architecture.md](docs/architecture.md)),
-`SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`,
-`SNOWFLAKE_SCHEMA_ANALYTICS`, and optionally `WALMART_API_KEY` for live-mode runs.
-`terraform-plan.yml` needs its own set, listed in the Terraform section below.
+### Running it locally
+
+```bash
+cp .env.jenkins.example .env.jenkins   # set JENKINS_ADMIN_ID / JENKINS_ADMIN_PASSWORD
+docker compose up -d jenkins
+# http://localhost:8080, log in with the admin credentials above
+```
+
+The image bootstraps the admin user via Jenkins Configuration as Code
+(`jenkins/casc.yaml`) so there's no setup wizard to click through. From there:
+
+1. **New Item → Pipeline**, one for each of the three Jenkinsfiles above,
+   with "Pipeline script from SCM" pointing at this repo (once you've pushed
+   your own commits -- a local Jenkins has no public endpoint for GitHub to
+   webhook into, so use "Poll SCM" as the trigger, e.g. `H/5 * * * *`).
+2. **Manage Jenkins → Credentials**, add the credentials each Jenkinsfile's
+   `withCredentials` block references: `snowflake-private-key` (Secret file,
+   the key-pair `.p8`), `snowflake-account` / `snowflake-user` /
+   `snowflake-role` / `snowflake-warehouse` / `snowflake-database` /
+   `snowflake-schema` / `snowflake-schema-analytics` (Secret text, one each),
+   `walmart-api-key` (Secret text, for live-mode scheduled runs), and for the
+   Terraform job: `aws-jenkins-ci` (Username with password -- the
+   `jenkins_ci` IAM user's access key ID/secret from
+   `terraform output jenkins_ci_user_name` +
+   `aws iam create-access-key --user-name <that>`), plus `aws-region`,
+   `tf-state-bucket`, `tf-lock-table`, `tf-var-raw-bucket-name`,
+   `snowflake-organization-name`, `snowflake-account-name` (Secret text).
+3. Run a build, watch the console log.
+
+Skipping credential setup is fine -- lint/test/`dbt parse`/`terraform
+fmt+validate` all run and pass with no secrets configured at all.
 
 ## Infrastructure as Code (Terraform)
 
@@ -206,7 +239,7 @@ terraform/
 ├── bootstrap/          -- one-time: creates the state bucket + lock table (local state)
 ├── modules/
 │   ├── s3/              -- raw payload bucket: versioning, SSE-S3, public access block, Glacier lifecycle
-│   ├── iam/              -- ingestion role, GitHub Actions CI role, Snowflake storage-integration role
+│   ├── iam/              -- jenkins_ci IAM user (S3 ingestion + read-only terraform plan), Snowflake storage-integration role
 │   └── snowflake/       -- database, RAW/ANALYTICS schemas, XSMALL warehouse, dbt role, storage integration
 ├── main.tf, variables.tf, outputs.tf, versions.tf, backend.tf
 ├── terraform.tfvars.example   -- copy to terraform.tfvars (gitignored)
@@ -223,14 +256,17 @@ A few design choices worth calling out:
   `ANALYTICS` at run time, which is why the dbt role gets `CREATE SCHEMA` +
   future-schema grants instead of Terraform trying to pre-create every layer
   (see `modules/snowflake/variables.tf` for the full reasoning).
-- **GitHub Actions authenticates via OIDC, not access keys.** Both the
-  ingestion role and the CI plan role are assumed through GitHub's OIDC
-  provider, scoped by repo (and, for ingestion, to the `main` branch) --
-  no long-lived AWS credentials ever live in a GitHub secret.
-- **The CI role is read-only.** It can read state, hold the DynamoDB lock,
-  and describe the S3/IAM resources this config manages -- enough for an
-  accurate `terraform plan` -- but has no mutating AWS permissions. Applies
-  are run manually, from a developer machine, on purpose.
+- **Jenkins authenticates with a scoped IAM user, not OIDC.** GitHub Actions
+  can do keyless OIDC federation because AWS calls back into GitHub's public
+  JWKS endpoint; a local Jenkins controller has no public endpoint for AWS to
+  reach, so there's no equivalent federation target. The `jenkins_ci` IAM
+  user's access key (created out-of-band with `aws iam create-access-key`,
+  never by Terraform, so the secret never lands in state) is the pragmatic
+  tradeoff instead, stored only in Jenkins' credential store.
+- **That user is read-only for Terraform.** It can read state, hold the
+  DynamoDB lock, and describe the S3/IAM resources this config manages --
+  enough for an accurate `terraform plan` -- but has no mutating AWS
+  permissions. Applies are run manually, from a developer machine, on purpose.
 
 ### The bootstrap problem: the state bucket has to exist before the backend can use it
 
@@ -322,12 +358,9 @@ variables, not `terraform.tfvars` -- set `SNOWFLAKE_ORGANIZATION_NAME`,
 `terraform plan`/`apply`. (These are the current, non-deprecated equivalents
 of the combined `SNOWFLAKE_ACCOUNT` identifier used elsewhere in this
 project -- the Snowflake Terraform provider warns on `account` /
-`SNOWFLAKE_ACCOUNT`.) For `terraform-plan.yml` in CI, the equivalent repo
-secrets are `AWS_CI_ROLE_ARN`, `AWS_REGION`, `TF_STATE_BUCKET`,
-`TF_STATE_BUCKET_ARN`, `TF_LOCK_TABLE`, `TF_LOCK_TABLE_ARN`,
-`TF_VAR_RAW_BUCKET_NAME`, `SNOWFLAKE_ORGANIZATION_NAME`,
-`SNOWFLAKE_ACCOUNT_NAME`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY`, and
-`SNOWFLAKE_ROLE`.
+`SNOWFLAKE_ACCOUNT`.) For `jenkins/Jenkinsfile.terraform` in CI, the
+equivalent Jenkins credentials are listed in the
+[CI/CD (Jenkins)](#cicd-jenkins) section above.
 
 ## Example commands
 
@@ -467,8 +500,8 @@ in the run manifest and visible in the dashboard's pipeline-health tab.
   data.
 - `dim_date` is a static spine (2024-01-01 through one year ahead), not derived
   from observed data -- simplest correct approach for a project this size.
-- No orchestrator (Airflow, Dagster, etc.) -- GitHub Actions' schedule trigger
-  is sufficient at this scale; see docs/decisions.md for the reasoning.
+- No orchestrator (Airflow, Dagster, etc.) -- Jenkins' cron trigger is
+  sufficient at this scale; see docs/decisions.md for the reasoning.
 
 ## Future improvements
 

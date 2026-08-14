@@ -1,21 +1,11 @@
-output "ingestion_role_arn" {
-  value       = aws_iam_role.ingestion.arn
-  description = "ARN the pipeline assumes (via GitHub OIDC) to read/write raw payloads in S3."
+output "jenkins_ci_user_arn" {
+  value       = aws_iam_user.jenkins_ci.arn
+  description = "ARN of the IAM user Jenkins authenticates as (access key created out-of-band, stored in Jenkins' credential store -- see the README)."
 }
 
-output "ingestion_role_name" {
-  value       = aws_iam_role.ingestion.name
-  description = "Name of the ingestion role."
-}
-
-output "github_actions_ci_role_arn" {
-  value       = aws_iam_role.github_actions_ci.arn
-  description = "ARN the terraform-plan.yml workflow assumes (via GitHub OIDC) to run `terraform plan`. Read-only -- cannot apply."
-}
-
-output "github_oidc_provider_arn" {
-  value       = local.github_oidc_provider_arn
-  description = "ARN of the GitHub Actions OIDC provider in use (created here or passed in)."
+output "jenkins_ci_user_name" {
+  value       = aws_iam_user.jenkins_ci.name
+  description = "Name of the Jenkins CI IAM user, for `aws iam create-access-key --user-name`."
 }
 
 output "storage_integration_role_arn" {

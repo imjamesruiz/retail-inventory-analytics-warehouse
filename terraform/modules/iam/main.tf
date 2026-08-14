@@ -1,59 +1,20 @@
-# GitHub Actions authenticates via OIDC federation rather than long-lived
-# IAM user access keys -- no AWS secret ever sits in a GitHub secret, and
-# each role's trust policy restricts *which* repo/ref can assume it.
+# --- Jenkins CI user ------------------------------------------------------
+# A local Jenkins controller (jenkins/) has no public HTTPS endpoint, so it
+# can't do OIDC federation the way GitHub Actions did -- there's no JWKS
+# endpoint for AWS to call back into. Long-lived access keys on a
+# narrowly-scoped IAM user are the pragmatic tradeoff instead: no Terraform
+# resource generates the key pair (that would put a secret in state), see the
+# README for creating one by hand and storing it in Jenkins' credential
+# store.
+#
+# Carries both the raw-payload read/write policy (for RAW_STORAGE_BACKEND=s3
+# ingestion runs) and the read-only terraform-plan policy below -- one
+# principal for both Jenkins job types, since they run on the same
+# controller.
 
-resource "aws_iam_openid_connect_provider" "github" {
-  count = var.create_github_oidc_provider ? 1 : 0
-
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
-  # GitHub's OIDC root CA thumbprint. AWS also trusts the provider's TLS
-  # chain automatically for token.actions.githubusercontent.com, but the
-  # provider resource still requires a value here.
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-
+resource "aws_iam_user" "jenkins_ci" {
+  name = "${var.project_name}-jenkins-ci"
   tags = var.tags
-}
-
-locals {
-  github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : var.github_oidc_provider_arn
-}
-
-# --- Ingestion role -----------------------------------------------------
-# Assumed by the scheduled-pipeline.yml workflow when it writes/reads raw
-# payloads directly against S3 (RAW_STORAGE_BACKEND=s3). Restricted to the
-# main branch -- PR runs use fixture mode / local storage and never need
-# AWS credentials.
-
-data "aws_iam_policy_document" "ingestion_assume" {
-  statement {
-    sid     = "GithubActionsIngestionOIDC"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [local.github_oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
-    }
-  }
-}
-
-resource "aws_iam_role" "ingestion" {
-  name               = "${var.project_name}-ingestion"
-  assume_role_policy = data.aws_iam_policy_document.ingestion_assume.json
-  tags               = var.tags
 }
 
 data "aws_iam_policy_document" "ingestion" {
@@ -70,47 +31,14 @@ resource "aws_iam_policy" "ingestion" {
   policy = data.aws_iam_policy_document.ingestion.json
 }
 
-resource "aws_iam_role_policy_attachment" "ingestion" {
-  role       = aws_iam_role.ingestion.name
+resource "aws_iam_user_policy_attachment" "ingestion" {
+  user       = aws_iam_user.jenkins_ci.name
   policy_arn = aws_iam_policy.ingestion.arn
 }
 
-# --- GitHub Actions CI role ----------------------------------------------
-# Assumed by the terraform-plan.yml workflow on pull requests. Read-only by
-# design: this role can never apply, so a compromised or malicious PR can't
-# use it to change infrastructure -- see the "no auto-apply" requirement in
-# terraform-plan.yml.
-
-data "aws_iam_policy_document" "ci_assume" {
-  statement {
-    sid     = "GithubActionsCiOIDC"
-    effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    principals {
-      type        = "Federated"
-      identifiers = [local.github_oidc_provider_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringLike"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:*"]
-    }
-  }
-}
-
-resource "aws_iam_role" "github_actions_ci" {
-  name               = "${var.project_name}-github-actions-ci"
-  assume_role_policy = data.aws_iam_policy_document.ci_assume.json
-  tags               = var.tags
-}
+# Read-only by design: this user can never apply, so a compromised Jenkins
+# credential can't be used to change infrastructure -- see the "no
+# auto-apply" comment in jenkins/Jenkinsfile.terraform.
 
 data "aws_iam_policy_document" "ci_plan" {
   # Terraform needs to read the state object and hold the DynamoDB lock for
@@ -159,24 +87,25 @@ data "aws_iam_policy_document" "ci_plan" {
       "iam:ListAttachedRolePolicies",
       "iam:ListPolicyVersions",
       "iam:ListInstanceProfilesForRole",
-      "iam:GetOpenIDConnectProvider",
+      "iam:ListUserPolicies",
+      "iam:ListAttachedUserPolicies",
     ]
     resources = ["*"]
   }
 }
 
 resource "aws_iam_policy" "ci_plan" {
-  name   = "${var.project_name}-github-actions-ci-plan"
+  name   = "${var.project_name}-jenkins-ci-plan"
   policy = data.aws_iam_policy_document.ci_plan.json
 }
 
-resource "aws_iam_role_policy_attachment" "ci_plan" {
-  role       = aws_iam_role.github_actions_ci.name
+resource "aws_iam_user_policy_attachment" "ci_plan" {
+  user       = aws_iam_user.jenkins_ci.name
   policy_arn = aws_iam_policy.ci_plan.arn
 }
 
 # --- Snowflake storage integration role -----------------------------------
-# Assumed by Snowflake (not GitHub Actions) via the external-ID pattern.
+# Assumed by Snowflake (not Jenkins) via the external-ID pattern.
 # Created here with a locked placeholder trust policy because Snowflake only
 # generates the real IAM user ARN / external ID *after* the storage
 # integration is created with this role's ARN as an input -- see the

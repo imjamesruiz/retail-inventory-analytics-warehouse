@@ -2,10 +2,9 @@
 # Snowflake credentials are NOT set here -- see the README for the
 # SNOWFLAKE_* environment variables the provider reads instead.
 
-aws_region        = "us-east-1"
-project_name      = "retail-inventory"
-raw_bucket_name   = "retail-inventory-raw-<your-account-id>"
-github_repository = "imjamesruiz/retail-inventory-analytics-warehouse"
+aws_region      = "us-east-1"
+project_name    = "retail-inventory"
+raw_bucket_name = "retail-inventory-raw-<your-account-id>"
 
 # From `terraform -chdir=bootstrap output`
 state_bucket_arn = "arn:aws:s3:::retail-inventory-tfstate-<your-account-id>"
